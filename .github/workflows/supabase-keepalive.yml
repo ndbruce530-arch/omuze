@@ -1,0 +1,53 @@
+# Keeps the free-tier Supabase project from auto-pausing after ~7 days of
+# inactivity by running a tiny real database query every 3 days.
+# If the ping fails (e.g. the project is already paused), the job fails and
+# GitHub emails the repo owner.
+
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: "17 6 */3 * *" # 06:17 UTC every 3 days
+  workflow_dispatch: # allow a manual run from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: lib/core/config/supabase_config.dart
+          sparse-checkout-cone-mode: false
+
+      - name: Ping Supabase database
+        run: |
+          CFG=lib/core/config/supabase_config.dart
+          URL=$(grep -oE "url *= *'[^']+'" "$CFG" | sed "s/.*'\(.*\)'/\1/")
+          KEY=$(grep -oE "anonKey *= *'[^']+'" "$CFG" | sed "s/.*'\(.*\)'/\1/")
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "::error::Could not read Supabase url/anonKey from $CFG"
+            exit 1
+          fi
+
+          # A real SELECT against Postgres (not just the HTTP gateway) so it
+          # counts as project activity. Retries cover a cold start.
+          for attempt in 1 2 3; do
+            CODE=$(curl -s -o /tmp/resp.txt -w "%{http_code}" --max-time 30 \
+              -H "apikey: $KEY" \
+              -H "Authorization: Bearer $KEY" \
+              "$URL/rest/v1/persons?select=id&limit=1")
+            echo "Attempt $attempt: HTTP $CODE"
+            if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 300 ]; then
+              echo "Supabase is awake."
+              exit 0
+            fi
+            sleep 20
+          done
+
+          echo "::error::Supabase ping failed (HTTP $CODE). The project may be paused; restore it at https://supabase.com/dashboard"
+          head -c 500 /tmp/resp.txt
+          exit 1
