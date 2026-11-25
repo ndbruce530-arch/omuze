@@ -17,21 +17,17 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      # Public client values (the same ones shipped inside the omuze.org web
+      # app). The publishable key is safe to expose; RLS protects the data.
+      # Kept here because the app source is not in this public repo.
+      SUPABASE_URL: https://kuylsuszyvjedzuyduyo.supabase.co
+      SUPABASE_KEY: sb_publishable_uUmxW1w75xXTjEOlr_WqcQ_NgmydKXK
     steps:
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: lib/core/config/supabase_config.dart
-          sparse-checkout-cone-mode: false
-
       - name: Ping Supabase database
         run: |
-          CFG=lib/core/config/supabase_config.dart
-          URL=$(grep -oE "url *= *'[^']+'" "$CFG" | sed "s/.*'\(.*\)'/\1/")
-          KEY=$(grep -oE "anonKey *= *'[^']+'" "$CFG" | sed "s/.*'\(.*\)'/\1/")
-          if [ -z "$URL" ] || [ -z "$KEY" ]; then
-            echo "::error::Could not read Supabase url/anonKey from $CFG"
-            exit 1
-          fi
+          URL="$SUPABASE_URL"
+          KEY="$SUPABASE_KEY"
 
           # A real SELECT against Postgres (not just the HTTP gateway) so it
           # counts as project activity. Retries cover a cold start.
